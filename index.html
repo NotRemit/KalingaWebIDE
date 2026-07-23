@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="or">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>କଳିଙ୍ଗକୋଡ୍ (KalingaCode) Web IDE</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <!-- Top Toolbar -->
+    <header class="toolbar">
+        <div class="logo">
+            <i class="fa-solid fa-laptop-code"></i> କଳିଙ୍ଗକୋଡ୍ (KalingaCode)
+        </div>
+        <div class="actions">
+            <button id="run-btn" class="btn btn-run" disabled>
+                <i class="fa-solid fa-play"></i> କୋଡ୍ ଚଲାନ୍ତୁ (Run)
+            </button>
+            <button id="clear-btn" class="btn btn-clear">
+                <i class="fa-solid fa-trash-can"></i> ସଫା କରନ୍ତୁ (Clear)
+            </button>
+            <button id="help-btn" class="btn btn-help">
+                <i class="fa-solid fa-question"></i> ସାହାଯ୍ୟ (Help)
+            </button>
+        </div>
+        <div class="header-right" style="display: flex; align-items: center; gap: 15px;">
+            <div class="developer-credit" style="font-size: 0.9rem; color: var(--fg-muted);">
+                ପ୍ରସ୍ତୁତକର୍ତ୍ତା: <a href="https://linkedin.com/in/remit-patra" target="_blank" style="color: var(--accent-blue); text-decoration: underline;">ରେମିତ କୁମାର ପାତ୍ର (Remit Kumar Patra)</a>
+            </div>
+            <div id="status-indicator" class="status loading">
+                <i class="fa-solid fa-circle-notch fa-spin"></i> Pyodide ଲୋଡ୍ ହେଉଛି...
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-container">
+        <!-- Left Sidebar: Lessons -->
+        <aside class="sidebar">
+            <section class="section">
+                <h3><i class="fa-solid fa-book-open"></i> ପାଠ୍ୟକ୍ରମ (Lessons)</h3>
+                <div class="lesson-list" id="lesson-buttons-container">
+                    <!-- Lesson buttons will be dynamically generated -->
+                </div>
+            </section>
+            
+            <section class="section dictionary-section">
+                <h3><i class="fa-solid fa-book-atlas"></i> ଶବ୍ଦାବଳୀ (Dictionary)</h3>
+                <div class="dictionary-box" id="dictionary-box">
+                    <!-- Dictionary items populated here -->
+                </div>
+            </section>
+        </aside>
+
+        <!-- Center: Code Editor -->
+        <section class="editor-pane">
+            <div class="pane-header">
+                <span><i class="fa-solid fa-code"></i> ଓଡ଼ିଆ କୋଡ୍ ସମ୍ପାଦକ (Odia Code Editor)</span>
+            </div>
+            <div class="editor-wrapper">
+                <textarea id="code-textarea"></textarea>
+            </div>
+        </section>
+
+        <!-- Right: Console & AI Preview -->
+        <aside class="right-pane">
+            <div class="console-pane">
+                <div class="pane-header console-header">
+                    <span><i class="fa-solid fa-terminal"></i> ଫଳାଫଳ କନସୋଲ୍ (Output Console)</span>
+                </div>
+                <div class="console-wrapper">
+                    <pre id="console-output" class="console-output">✓ ପରିବେଶ ପ୍ରସ୍ତୁତ। ପ୍ରୋଗ୍ରାମ ଚଲାଇବା ପାଇଁ 'Run' କ୍ଲିକ୍ କରନ୍ତୁ।</pre>
+                </div>
+            </div>
+
+            <div class="ai-pane">
+                <div class="pane-header ai-header">
+                    <span><i class="fa-solid fa-brain"></i> ଏଆଇ ଚିତ୍ର ପୂର୍ବାବଲୋକନ (AI Image Preview)</span>
+                </div>
+                <div class="ai-wrapper">
+                    <div id="ai-preview-placeholder" class="ai-preview-placeholder">
+                        <i class="fa-solid fa-image"></i>
+                        <p>ଏଆଇ_ଦେଖ ଫଙ୍କସନ ଚାଲିଲେ ଏଠାରେ ଚିତ୍ର ଦେଖାଯିବ।</p>
+                    </div>
+                    <img id="ai-preview-img" class="ai-preview-img" style="display: none;" src="" alt="AI Preview Image">
+                    <div class="ai-controls">
+                        <label for="sample-image-select">ନମୁନା ଚିତ୍ର ବାଛନ୍ତୁ: </label>
+                        <select id="sample-image-select">
+                            <option value="none">-- ବାଛନ୍ତୁ --</option>
+                            <option value="apple.jpg">apple.jpg (ସେଓ)</option>
+                            <option value="dog.jpg">dog.jpg (କୁକୁର)</option>
+                            <option value="snack.jpg">snack.jpg (ଫଳ/ସ୍ନାକ୍ସ)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Dedicated Lesson Modal (Pop-up page when learning a concept) -->
+    <div id="lesson-modal" class="modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h2 id="modal-title">ପାଠ ଶିରୋନାମା</h2>
+                <button class="modal-close-btn" id="modal-close">&times;</button>
+            </header>
+            <div class="modal-body" id="modal-body-content">
+                <!-- Rich text details go here -->
+            </div>
+            <footer class="modal-footer">
+                <button id="modal-load-btn" class="btn btn-run">
+                    <i class="fa-solid fa-download"></i> ସମ୍ପାଦକରେ ଲୋଡ୍ କରନ୍ତୁ (Load Code)
+                </button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h2>ସାହାଯ୍ୟ (Help Guide)</h2>
+                <button class="modal-close-btn" id="help-modal-close">&times;</button>
+            </header>
+            <div class="modal-body">
+                <h3>ଓଡ଼ିଆ ପ୍ରୋଗ୍ରାମିଂ IDE କୁ ସ୍ୱାଗତ!</h3>
+                <p>ଆପଣ Phonetic English ଟାଇପ୍ କରି ସ୍ପେସ୍ କିମ୍ବା ବ୍ରାକେଟ୍ ପ୍ରେସ୍ କଲେ, ତାହା ସ୍ୱୟଂଚାଳିତ ଭାବରେ ଓଡ଼ିଆ ଅକ୍ଷରରେ ପରିଣତ ହେବ।</p>
+                <div class="help-grid">
+                    <div><strong>Phonetic English</strong></div>
+                    <div><strong>ଓଡ଼ିଆ ଅକ୍ଷର</strong></div>
+                    <div>chhapantu</div>
+                    <div>ଛାପନ୍ତୁ</div>
+                    <div>jadi</div>
+                    <div>ଯଦି</div>
+                    <div>nachet</div>
+                    <div>ନଚେତ୍</div>
+                    <div>eai_dekha</div>
+                    <div>ଏଆଇ_ଦେଖ</div>
+                    <div>eai_pachara</div>
+                    <div>ଏଆଇ_ପଚାର</div>
+                </div>
+                <p style="margin-top: 15px;">କୋଡ୍ ଚଲାଇବା ପାଇଁ <strong>କୋଡ୍ ଚଲାନ୍ତୁ (Run)</strong> ବଟନ୍ କ୍ଲିକ୍ କରନ୍ତୁ।</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+    <!-- Pyodide JS -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+    <!-- Custom JS -->
+    <script src="app.js"></script>
+</body>
+</html>
