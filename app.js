@@ -236,30 +236,6 @@ const MOCK_TEXT_ANSWERS = {
 // VLM functions in JS that update UI elements
 function js_ai_dekha(imagePath, prompt) {
     const filename = imagePath.split('/').pop().toLowerCase();
-    
-    // Find preview elements
-    const placeholder = document.getElementById("ai-preview-placeholder");
-    const imgEl = document.getElementById("ai-preview-img");
-    const select = document.getElementById("sample-image-select");
-
-    // Map file name to UI preview image source
-    let imgSrc = "";
-    if (filename.includes("apple")) {
-        imgSrc = "https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=300&auto=format&fit=crop";
-        select.value = "apple.jpg";
-    } else if (filename.includes("dog")) {
-        imgSrc = "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=300&auto=format&fit=crop";
-        select.value = "dog.jpg";
-    } else if (filename.includes("snack")) {
-        imgSrc = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=300&auto=format&fit=crop"; // Healthy fruit bowl
-        select.value = "snack.jpg";
-    }
-
-    if (imgSrc) {
-        placeholder.style.display = "none";
-        imgEl.style.display = "block";
-        imgEl.src = imgSrc;
-    }
 
     // Heuristics for classifications
     for (const [key, val] of Object.entries(MOCK_IMAGE_LABELS)) {
@@ -528,13 +504,46 @@ window.addEventListener("DOMContentLoaded", async () => {
                     cm.replaceSelection("    ", "end"); // Insert 4 spaces (soft tab)
                 }
             },
-            "Shift-Tab": (cm) => cm.indentSelection("subtract") // Outdent block
+            "Shift-Tab": (cm) => cm.indentSelection("subtract"), // Outdent block
+            "Space": async (cm) => {
+                const pos = cm.getCursor();
+                const lineStr = cm.getLine(pos.line);
+                const wordMatch = lineStr.slice(0, pos.ch).match(/([a-zA-Z]+)$/);
+                
+                if (wordMatch) {
+                    const englishWord = wordMatch[1];
+                    try {
+                        const response = await fetch(`https://inputtools.google.com/request?text=${englishWord}&itc=or-t-i0-und&num=1`);
+                        const data = await response.json();
+                        if (data[0] === 'SUCCESS' && data[1][0][1][0]) {
+                            const odiaText = data[1][0][1][0];
+                            // Replace the English word with Odia text + space
+                            cm.replaceRange(odiaText + " ", {line: pos.line, ch: pos.ch - englishWord.length}, pos);
+                            return;
+                        }
+                    } catch (e) {
+                        console.error("Transliteration block failed:", e);
+                    }
+                }
+                // Fallback / standard path if no transliteration occurs
+                cm.replaceSelection(" ");
+            }
         }
     });
 
     // Set Default Code
     const defaultCode = 'ପରିଭାଷା ସ୍ୱାଗତ(ନାମ):\n    ଯଦି ନାମ == ଶୂନ୍ୟ:\n        ଛାପନ୍ତୁ("ନମସ୍କାର, ଅଜ୍ଞାତ ବ୍ୟକ୍ତି!")\n    ନଚେତ୍:\n        ଛାପନ୍ତୁ("ନମସ୍କାର, " + ନାମ + "!")\n\nସ୍ୱାଗତ("ଛାତ୍ର")';
     currentEditor.setValue(defaultCode);
+
+    // Track Cursor for Status Bar
+    currentEditor.on("cursorActivity", (cm) => {
+        const pos = cm.getCursor();
+        const lineElem = document.getElementById("status-line-col");
+        if (lineElem) lineElem.textContent = `Ln ${pos.line + 1}, Col ${pos.ch + 1}`;
+        
+        const charsElem = document.getElementById("status-chars");
+        if (charsElem) charsElem.textContent = `${cm.getValue().length} chars`;
+    });
 
     // Enable auto-hint on typing (inputRead)
     currentEditor.on("inputRead", function(cm, change) {
