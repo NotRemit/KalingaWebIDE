@@ -372,6 +372,52 @@ const CONCEPTS = {
 let pyodideInstance = null;
 let currentEditor = null;
 let activeLesson = null;
+let currentFontSize = 14;
+
+// --- Lint Marker State ---
+let _lintMarkers = [];      // CodeMirror TextMarker objects
+let _lintGutterLines = [];  // line numbers that have gutter markers
+
+function clearLintMarkers() {
+    _lintMarkers.forEach(m => m.clear());
+    _lintMarkers = [];
+    _lintGutterLines.forEach(line => {
+        currentEditor.setGutterMarker(line, "cm-lint-gutter", null);
+    });
+    _lintGutterLines = [];
+}
+
+/**
+ * Mark a line in the editor with a wavy underline and gutter icon.
+ * @param {number} oneBased  - 1-based line number from Python traceback
+ * @param {'error'|'warning'} severity
+ * @param {string} message   - tooltip text
+ */
+function applyLintMarker(oneBased, severity, message) {
+    if (!currentEditor) return;
+    const line = Math.max(0, oneBased - 1); // CodeMirror is 0-based
+    const lineText = currentEditor.getLine(line);
+    if (lineText === undefined) return;
+
+    // Wavy underline over entire line
+    const marker = currentEditor.markText(
+        { line, ch: 0 },
+        { line, ch: lineText.length || 1 },
+        {
+            className: severity === "error" ? "cm-lint-error" : "cm-lint-warning",
+            title: message
+        }
+    );
+    _lintMarkers.push(marker);
+
+    // Gutter icon
+    const icon = document.createElement("div");
+    icon.className = severity === "error" ? "cm-lint-gutter-error" : "cm-lint-gutter-warning";
+    icon.title = message;
+    icon.innerHTML = severity === "error" ? "●" : "▲";
+    currentEditor.setGutterMarker(line, "cm-lint-gutter", icon);
+    _lintGutterLines.push(line);
+}
 
 // --- Initialize App ---
 window.addEventListener("DOMContentLoaded", async () => {
@@ -383,7 +429,14 @@ window.addEventListener("DOMContentLoaded", async () => {
         lineNumbers: true,
         indentUnit: 4,
         tabSize: 4,
-        lineWrapping: true
+        lineWrapping: true,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+        foldGutter: true,
+        gutters: ["CodeMirror-linenumbers", "cm-lint-gutter", "CodeMirror-foldgutter"],
+        extraKeys: {
+            "Ctrl-Q": (cm) => cm.foldCode(cm.getCursor())
+        }
     });
 
     // Set Default Code
@@ -406,7 +459,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     // 4. Initialize Pyodide
     try {
         pyodideInstance = await loadPyodide();
-        
+
+        // Override input() to use browser prompt() dialog
+        pyodideInstance.globals.set("input", (prompt) => {
+            const val = window.prompt(prompt || "");
+            return val === null ? "" : val;
+        });
+
         // Expose JavaScript AI functions to Python environment
         pyodideInstance.globals.set("ai_dekha", js_ai_dekha);
         pyodideInstance.globals.set("ai_pachara", js_ai_pachara);
@@ -443,6 +502,17 @@ window.addEventListener("DOMContentLoaded", async () => {
         }
     };
 
+    // New feature event listeners
+    document.getElementById("theme-select").onchange = (e) => changeTheme(e.target.value);
+    document.getElementById("font-increase-btn").onclick = () => changeFontSize(1);
+    document.getElementById("font-decrease-btn").onclick = () => changeFontSize(-1);
+    document.getElementById("download-btn").onclick = downloadCode;
+
+    // Status bar updates
+    currentEditor.on("cursorActivity", updateStatusBar);
+    currentEditor.on("change", updateStatusBar);
+    updateStatusBar();
+
     // CodeMirror Phonetic Auto-Replace on Typing Space/Colons/Brackets
     currentEditor.on("keyup", (cm, event) => {
         const triggers = [" ", "Enter", "(", ":", ")"];
@@ -469,39 +539,330 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
 });
 
+// --- Font Size Control ---
+function changeFontSize(delta) {
+    currentFontSize = Math.max(10, Math.min(26, currentFontSize + delta));
+    const cm = document.querySelector(".CodeMirror");
+    if (cm) cm.style.fontSize = currentFontSize + "px";
+    document.getElementById("font-size-display").textContent = currentFontSize + "px";
+    if (currentEditor) currentEditor.refresh();
+}
+
+// --- Theme Switcher ---
+function changeTheme(theme) {
+    if (currentEditor) currentEditor.setOption("theme", theme);
+}
+
+// --- Download Code ---
+function downloadCode() {
+    const code = currentEditor ? currentEditor.getValue() : "";
+    const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "kalinga_code.kal";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// --- Status Bar ---
+function updateStatusBar() {
+    if (!currentEditor) return;
+    const cursor = currentEditor.getCursor();
+    const code = currentEditor.getValue();
+    const lineColEl = document.getElementById("status-line-col");
+    const charsEl = document.getElementById("status-chars");
+    if (lineColEl) lineColEl.textContent = `Ln ${cursor.line + 1}, Col ${cursor.ch + 1}`;
+    if (charsEl) charsEl.textContent = `${code.length} chars`;
+}
+
+// --- Translate common Python error detail messages to Odia ---
+function translateErrorDetail(detail) {
+    const patterns = [
+        // NameError
+        [/^name '(.+)' is not defined$/,
+            (m) => `'${m[1]}' ନାମ ସଂଜ୍ଞାୟିତ ହୋଇ ନାହିଁ — ଏହାକୁ ପ୍ରଥମେ ଘୋଷଣା କରନ୍ତୁ`],
+
+        // TypeError: can only concatenate
+        [/^can only concatenate (.+) \(not "(.+)"\) to \1$/,
+            (m) => `କେବଳ ${m[1]} ସହ ${m[1]} ଯୋଗ ହୋଇ ପାରିବ, ${m[2]} ନୁହଁ`],
+
+        // TypeError: unsupported operand
+        [/^unsupported operand type\(s\) for (.+): '(.+)' and '(.+)'$/,
+            (m) => `'${m[2]}' ଏବଂ '${m[3]}' ମଧ୍ୟରେ '${m[1]}' ଅପରେଶନ ସମ୍ଭବ ନୁହଁ`],
+
+        // TypeError: argument
+        [/^(\w+)\(\) takes (\d+) positional argument[s]? but (\d+) (?:was|were) given$/,
+            (m) => `'${m[1]}' ଫଙ୍କସନ ${m[2]}ଟି argument ଆଶା କଲା, କିନ୍ତୁ ${m[3]}ଟି ଦିଆ ଗଲା`],
+
+        // TypeError: missing argument
+        [/^(\w+)\(\) missing (\d+) required positional argument[s]?: (.+)$/,
+            (m) => `'${m[1]}' ଫଙ୍କସନରେ ${m[2]}ଟି argument ଅନୁପସ୍ଥିତ: ${m[3]}`],
+
+        // TypeError: not callable
+        [/^'(.+)' object is not callable$/,
+            (m) => `'${m[1]}' ଏକ ଫଙ୍କସନ ନୁହଁ, ଏହାକୁ () ସହ ଡାକ ହୁଏ ନାହିଁ`],
+
+        // IndexError
+        [/^list index out of range$/,
+            () => `ତାଲିକା ସୂଚକ ସୀମା ବାହାରୁ — ତାଲିକାର ଆକାର ଯାଞ୍ଚ କରନ୍ତୁ`],
+
+        // KeyError (key is usually quoted)
+        [/^'(.+)'$/,
+            (m) => `ଅଭିଧାନରେ '${m[1]}' ଚାବି ନାହିଁ`],
+
+        // ZeroDivisionError
+        [/^division by zero$/,
+            () => `ଶୂନ୍ୟ ଦ୍ୱାରା ଭାଗ ହୁଏ ନାହିଁ`],
+
+        // ZeroDivisionError (modulo)
+        [/^integer division or modulo by zero$/,
+            () => `ଶୂନ୍ୟ ଦ୍ୱାରା ଭାଗ ବା ଶେଷଭାଗ ହୁଏ ନାହିଁ`],
+
+        // ValueError: invalid literal
+        [/^invalid literal for int\(\) with base (\d+): '(.+)'$/,
+            (m) => `'${m[2]}' ଏକ ବୈଧ ସଂଖ୍ୟା ନୁହଁ — ପୂର୍ଣ୍ଣ ସଂଖ୍ୟା ଦେବା ଆବଶ୍ୟକ`],
+
+        // IndentationError
+        [/^expected an indented block(?: after .+)?$/,
+            () => `ଇଣ୍ଡେଣ୍ଟ ହୋଇଥିବା ବ୍ଲକ ଆଶା କରାଯାଉଛି — ⬆ space ଦେଇ ସ୍ଥାନ ଭିତରକୁ ଯାଆନ୍ତୁ`],
+
+        [/^unexpected indent$/,
+            () => `ଅପ୍ରତ୍ୟାଶିତ ଇଣ୍ଡେଣ୍ଟ — ଖାଲି ଜାଗା ଅଧିକ ହୋଇ ଗଲା`],
+
+        // SyntaxError
+        [/^invalid syntax$/,
+            () => `ଅବୈଧ ବାକ୍ୟଗଠନ — ଶବ୍ଦ ବା ବ୍ରାକେଟ ଯାଞ୍ଚ କରନ୍ତୁ`],
+
+        [/^EOL while scanning string literal$/,
+            () => `ଷ୍ଟ୍ରିଂ ଶେଷ ହୋଇ ନାହିଁ — ବନ୍ଧ ଉଦ୍ଧୃତି (" ଅଥବା ') ଦେବାକୁ ଭୁଲ ଗଲେ`],
+
+        [/^EOF while scanning triple-quoted string literal$/,
+            () => `ତ୍ରିଗୁଣ ଉଦ୍ଧୃତି ଷ୍ଟ୍ରିଂ ଶେଷ ହୋଇ ନାହିଁ`],
+
+        // AttributeError
+        [/^'(.+)' object has no attribute '(.+)'$/,
+            (m) => `'${m[1]}' ଅବଜେକ୍ଟରେ '${m[2]}' ଗୁଣ ନାହିଁ`],
+
+        // RecursionError
+        [/^maximum recursion depth exceeded/,
+            () => `ଅଧିକ ପୁନରାବୃତ୍ତି — ଫଙ୍କସନ ନିଜକୁ ଅତ୍ୟଧିକ ଥର ଡାକୁଛି`],
+    ];
+
+    for (const [regex, translate] of patterns) {
+        const m = detail.match(regex);
+        if (m) return translate(m);
+    }
+
+    // If no Odia translation matched, return original with a note
+    return `${detail}`;
+}
+
+function formatPythonError(errMessage) {
+    const msg = String(errMessage);
+
+    // --- 1. Find the LAST line number in the traceback (innermost frame = actual error)
+    let lineNum = "?";
+    const allLineMatches = [...msg.matchAll(/File\s+"[^"]*",\s+line\s+(\d+)/g)];
+    if (allLineMatches.length > 0) {
+        // Last match is the deepest frame = actual error location
+        lineNum = allLineMatches[allLineMatches.length - 1][1];
+    } else {
+        // Fallback: SyntaxError sometimes uses a simpler "line N" format
+        const fallback = msg.match(/line\s+(\d+)/);
+        if (fallback) lineNum = fallback[1];
+    }
+
+    // --- 2. Error type mapping
+    const errorTypes = {
+        "SyntaxError":      "ବାକ୍ୟଗଠନ ତ୍ରୁଟି (Syntax Error)",
+        "IndentationError": "ଇଣ୍ଡେଣ୍ଟେସନ ତ୍ରୁଟି (Indentation Error)",
+        "NameError":        "ନାମ ତ୍ରୁଟି (Name Error)",
+        "TypeError":        "ପ୍ରକାର ତ୍ରୁଟି (Type Error)",
+        "ValueError":       "ମୂଲ୍ୟ ତ୍ରୁଟି (Value Error)",
+        "IndexError":       "ସୂଚକ ତ୍ରୁଟି (Index Error)",
+        "KeyError":         "ଚାବି ତ୍ରୁଟି (Key Error)",
+        "AttributeError":   "ବିଶେଷତ୍ୱ ତ୍ରୁଟି (Attribute Error)",
+        "ZeroDivisionError":"ଶୂନ୍ୟ ଭାଗ ତ୍ରୁଟି (Zero Division Error)",
+        "RecursionError":   "ପୁନରାବୃତ୍ତି ତ୍ରୁଟି (Recursion Error)",
+        "ImportError":      "ଆମଦାନୀ ତ୍ରୁଟି (Import Error)",
+        "StopIteration":    "ପୁନରାବୃତ୍ତି ଶେଷ (Stop Iteration)",
+        "RuntimeError":     "ଚଳଚ୍ଚଳ ତ୍ରୁଟି (Runtime Error)",
+    };
+    let odiaErrorType = "ଅଜ୍ଞାତ ତ୍ରୁଟି (Unknown Error)";
+    let matchedEnType = null;
+    for (const [enType, odiaType] of Object.entries(errorTypes)) {
+        if (msg.includes(enType)) {
+            odiaErrorType = odiaType;
+            matchedEnType = enType;
+            break;
+        }
+    }
+
+    // --- 3. Extract the detail message after "ErrorType: ..." and translate to Odia
+    let detail = "";
+    if (matchedEnType) {
+        const detailMatch = msg.match(new RegExp(matchedEnType + ":\\s*(.+)"));
+        if (detailMatch) {
+            const rawDetail = detailMatch[1].split("\n")[0].trim();
+            detail = translateErrorDetail(rawDetail);
+        }
+    }
+
+    // --- 4. Build readable Odia output
+    let output = `⚠️  ଲାଇନ୍ ${lineNum} ରେ ତ୍ରୁଟି ଅଛି! (Error on Line ${lineNum})\n`;
+    output += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    output += `ତ୍ରୁଟି ପ୍ରକାର : ${odiaErrorType}\n`;
+    if (detail) {
+        output += `ବିବରଣ       : ${detail}\n`;
+    }
+    return output;
+}
+
+// --- AST Lint Check (runs before execution) ---
+async function lintCode(transpiledCode) {
+    const lintScript = `
+import ast, sys, io, json
+
+_warnings = []
+_code = ${JSON.stringify(String(transpiledCode))}
+
+try:
+    _tree = ast.parse(_code)
+    
+    # Collect all names assigned/defined at any scope
+    _defined = set()
+    for _node in ast.walk(_tree):
+        if isinstance(_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _defined.add(_node.name)
+            for _arg in _node.args.args:
+                _defined.add(_arg.arg)
+        elif isinstance(_node, ast.Assign):
+            for _t in _node.targets:
+                if isinstance(_t, ast.Name):
+                    _defined.add(_t.id)
+        elif isinstance(_node, (ast.Import, ast.ImportFrom)):
+            for _alias in _node.names:
+                _defined.add(_alias.asname or _alias.name.split('.')[0])
+        elif isinstance(_node, ast.For):
+            if isinstance(_node.target, ast.Name):
+                _defined.add(_node.target.id)
+        elif isinstance(_node, ast.NamedExpr):
+            _defined.add(_node.target.id)
+    
+    # Walk again for suspicious patterns
+    for _node in ast.walk(_tree):
+        # 1. Bare name on its own line (likely split keyword like ଛା / ପନ୍ତୁ)
+        if isinstance(_node, ast.Expr) and isinstance(_node.value, ast.Name):
+            _name = _node.value.id
+            if _name not in _defined and not hasattr(__builtins__, _name):
+                _warnings.append({
+                    "line": _node.lineno,
+                    "msg": f"'{_name}' ଏକୁଟା ଲିଖା ଅଛି — ସ୍ପ୍ଲିଟ୍ ଶବ୍ଦ ବା ଟାଇପୋ? (Bare name — split keyword or typo?)"
+                })
+        # 2. input() call but return value is discarded (bare statement)
+        elif isinstance(_node, ast.Expr) and isinstance(_node.value, ast.Call):
+            _fn = _node.value.func
+            _fname = _fn.id if isinstance(_fn, ast.Name) else None
+            if _fname == "input":
+                _warnings.append({
+                    "line": _node.lineno,
+                    "msg": f"'ନିଅନ୍ତୁ/input' ଲାଇନ୍ {_node.lineno}ରେ ବ୍ୟବହୃତ ହୋଇଛି କିନ୍ତୁ ଫଳ ସଂରକ୍ଷଣ ହୋଇ ନାହିଁ। ଛାପିବାକୁ 'ଛାପନ୍ତୁ' ବ୍ୟବହାର କରନ୍ତୁ କି? (input() return value not stored — did you mean print?)"
+                })
+
+    print(json.dumps({"ok": True, "warnings": _warnings}))
+
+except SyntaxError as _e:
+    print(json.dumps({"ok": False, "line": _e.lineno or "?", "msg": str(_e.msg)}))
+except Exception as _e:
+    print(json.dumps({"ok": True, "warnings": []}))
+`;
+
+    try {
+        pyodideInstance.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+        pyodideInstance.runPython(lintScript);
+        const raw = pyodideInstance.runPython(`sys.stdout.getvalue()`);
+        return JSON.parse(raw.trim());
+    } catch (e) {
+        return { ok: true, warnings: [] };
+    }
+}
+
 // --- Run Code ---
 async function runCode() {
     if (!pyodideInstance) return;
 
     const odiaCode = currentEditor.getValue();
     const consoleOut = document.getElementById("console-output");
-    consoleOut.textContent = "କୋଡ୍ ଚାଲୁଅଛି... (Running...)";
+    consoleOut.textContent = "କୋଡ୍ ଯାଞ୍ଚ ହେଉଅଛି... (Checking...)";
     consoleOut.className = "console-output";
+
+    // Clear previous markers on every new run
+    clearLintMarkers();
 
     try {
         const transpiledCode = transpile(odiaCode);
-        
-        // Clear outputs & prepare buffer
+
+        // --- Step 1: AST Lint before running ---
+        const lint = await lintCode(transpiledCode);
+
+        if (!lint.ok) {
+            // SyntaxError caught at parse time
+            const syntaxLine = parseInt(lint.line) || 1;
+            const odiaMsg = translateErrorDetail(lint.msg) || lint.msg;
+            applyLintMarker(syntaxLine, "error", `ବାକ୍ୟଗଠନ ତ୍ରୁଟି: ${odiaMsg}`);
+            consoleOut.className = "console-output error";
+            consoleOut.textContent =
+                `⚠️  ଲାଇନ୍ ${lint.line} ରେ ତ୍ରୁଟି ଅଛି! (Error on Line ${lint.line})\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `ତ୍ରୁଟି ପ୍ରକାର : ବାକ୍ୟଗଠନ ତ୍ରୁଟି (Syntax Error)\n` +
+                `ବିବରଣ       : ${odiaMsg}\n`;
+            return;
+        }
+
+        // Build warning prefix if there are suspicious patterns
+        let warnText = "";
+        if (lint.warnings && lint.warnings.length > 0) {
+            warnText += `🔍 ଯାଞ୍ଚ ସତର୍କତା (Lint Warnings):\n`;
+            warnText += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            for (const w of lint.warnings) {
+                warnText += `  ⚠ ଲାଇନ୍ ${w.line}: ${w.msg}\n`;
+                applyLintMarker(w.line, "warning", w.msg);
+            }
+            warnText += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        }
+
+        // --- Step 2: Clear stdout & run ---
         pyodideInstance.runPython(`
             import sys
             import io
             sys.stdout = io.StringIO()
         `);
 
-        // Execute code
         await pyodideInstance.runPythonAsync(transpiledCode);
 
-        // Fetch captured stdout
         const stdout = pyodideInstance.runPython(`sys.stdout.getvalue()`);
-        
-        if (stdout.trim()) {
+
+        if (warnText) {
+            consoleOut.className = "console-output warning";
+            consoleOut.textContent = warnText + (stdout.trim() ? `\n📤 ଆଉଟ୍‌ପୁଟ୍ (Output):\n${stdout}` : "✓ ଅଉଟ୍‌ପୁଟ୍ ନାହିଁ");
+        } else if (stdout.trim()) {
             consoleOut.textContent = stdout;
         } else {
             consoleOut.textContent = "✓ କୋଡ୍ ସଫଳତାର ସହ ଚାଲିଲା (Code ran successfully without output)";
         }
     } catch (err) {
-        consoleOut.textContent = `ତ୍ରୁଟି (Error):\n${err.message}`;
+        const errText = formatPythonError(err.message || String(err));
+        consoleOut.textContent = errText;
         consoleOut.className = "console-output error";
+        // Extract line number and mark in editor
+        const lineMatch = errText.match(/ଲାଇନ୍\s+(\d+)/);
+        if (lineMatch) {
+            const errLine = parseInt(lineMatch[1]);
+            applyLintMarker(errLine, "error", errText.split("\n").find(l => l.startsWith("ବିବରଣ")) || "");
+        }
     }
 }
 
