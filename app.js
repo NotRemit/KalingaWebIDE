@@ -368,6 +368,90 @@ const CONCEPTS = {
     }
 };
 
+// --- Autocomplete Hint Data ---
+// Build a comprehensive suggestion list: { phonetic, odia, python }
+const HINT_LIST = [];
+for (const [phonetic, odia] of Object.entries(PHONETIC_MAP)) {
+    const python = ODIA_TO_PY[odia] || "";
+    HINT_LIST.push({ phonetic, odia, python });
+}
+// Sort alphabetically by phonetic for consistent ordering
+HINT_LIST.sort((a, b) => a.phonetic.localeCompare(b.phonetic));
+
+/**
+ * Fetch dynamic transliteration for typed English words from Google Input Tools API.
+ */
+async function fetchOdiaTransliteration(text) {
+    if (!text || !/^[a-zA-Z]+$/.test(text)) return [];
+    try {
+        const res = await fetch(`https://inputtools.google.com/request?text=${encodeURIComponent(text)}&itc=or-t-i0-und&num=5&cp=0&cs=1&ie=utf-8&oe=utf-8&app=test`);
+        const data = await res.json();
+        if (data && data[0] === "SUCCESS" && data[1] && data[1][0] && data[1][0][1]) {
+            return data[1][0][1]; // Array of suggested Odia strings
+        }
+    } catch (e) {
+        console.warn("Transliteration API failed", e);
+    }
+    return [];
+}
+
+/**
+ * Custom CodeMirror async hint function for Odia keyword & transliteration autocomplete.
+ */
+function odiaHintAsync(cm, callback) {
+    const cursor = cm.getCursor();
+    const lineContent = cm.getLine(cursor.line);
+    const end = cursor.ch;
+
+    // Walk back to find the start of the current word
+    let start = end;
+    while (start > 0 && /[a-zA-Z_\u0b00-\u0b7f]/.test(lineContent.charAt(start - 1))) {
+        start--;
+    }
+
+    const typed = lineContent.slice(start, end);
+    if (typed.length < 1) {
+        return callback(null);
+    }
+
+    const typedLower = typed.toLowerCase();
+    const matchesMap = new Map(); // Use map to prevent duplicates
+
+    // 1. Check local static mapping (Pyodide keywords)
+    for (const item of HINT_LIST) {
+        if (item.phonetic.startsWith(typedLower) || (item.phonetic.includes(typedLower) && typed.length > 2)) {
+            matchesMap.set(item.odia, {
+                text: item.odia,
+                displayText: `${item.odia}  ← ${item.phonetic} (${item.python || item.odia})`,
+                className: "odia-hint-item kw-hint"
+            });
+        }
+    }
+
+    // 2. Fetch network transliteration (allow any English word to Odia)
+    fetchOdiaTransliteration(typedLower).then(dynamicSuggestions => {
+        for (const sugg of dynamicSuggestions) {
+            if (!matchesMap.has(sugg)) {
+                matchesMap.set(sugg, {
+                    text: sugg,
+                    displayText: `${sugg}  (Transliteration)`,
+                    className: "odia-hint-item translit-hint"
+                });
+            }
+        }
+
+        // Return combined list via callback
+        callback({
+            list: Array.from(matchesMap.values()).slice(0, 8),
+            from: CodeMirror.Pos(cursor.line, start),
+            to: CodeMirror.Pos(cursor.line, end)
+        });
+    });
+}
+odiaHintAsync.async = true; // Tell CodeMirror this hint function uses a callback
+
+
+
 // --- App State ---
 let pyodideInstance = null;
 let currentEditor = null;
@@ -432,16 +516,35 @@ window.addEventListener("DOMContentLoaded", async () => {
         lineWrapping: true,
         matchBrackets: true,
         autoCloseBrackets: true,
+        styleActiveLine: true,
         foldGutter: true,
         gutters: ["CodeMirror-linenumbers", "cm-lint-gutter", "CodeMirror-foldgutter"],
         extraKeys: {
-            "Ctrl-Q": (cm) => cm.foldCode(cm.getCursor())
+            "Ctrl-Q": (cm) => cm.foldCode(cm.getCursor()),
+            "Tab": (cm) => {
+                if (cm.somethingSelected()) {
+                    cm.indentSelection("add"); // Indent block if selected
+                } else {
+                    cm.replaceSelection("    ", "end"); // Insert 4 spaces (soft tab)
+                }
+            },
+            "Shift-Tab": (cm) => cm.indentSelection("subtract") // Outdent block
         }
     });
 
     // Set Default Code
     const defaultCode = 'ପରିଭାଷା ସ୍ୱାଗତ(ନାମ):\n    ଯଦି ନାମ == ଶୂନ୍ୟ:\n        ଛାପନ୍ତୁ("ନମସ୍କାର, ଅଜ୍ଞାତ ବ୍ୟକ୍ତି!")\n    ନଚେତ୍:\n        ଛାପନ୍ତୁ("ନମସ୍କାର, " + ନାମ + "!")\n\nସ୍ୱାଗତ("ଛାତ୍ର")';
     currentEditor.setValue(defaultCode);
+
+    // Enable auto-hint on typing (inputRead)
+    currentEditor.on("inputRead", function(cm, change) {
+        if (!cm.state.completionActive && change.text[0].length === 1 && /[a-zA-Z\u0b00-\u0b7f]/.test(change.text[0])) {
+            CodeMirror.commands.autocomplete(cm, null, { completeSingle: false });
+        }
+    });
+
+    // Register our async hinter as the default for Python mode
+    CodeMirror.registerHelper("hint", "python", odiaHintAsync);
 
     // 2. Render Lessons Sidebar Buttons
     const buttonsContainer = document.getElementById("lesson-buttons-container");
@@ -560,7 +663,7 @@ function downloadCode() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "kalinga_code.kal";
+    a.download = "kalinga_code.odia";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1001,3 +1104,41 @@ function renderDictionary() {
     }
     dictBox.innerHTML = html;
 }
+
+// --- Editor UI Controls ---
+const themeSelect = document.getElementById("theme-select");
+const fontIncreaseBtn = document.getElementById("font-increase-btn");
+const fontDecreaseBtn = document.getElementById("font-decrease-btn");
+const fontSizeDisplay = document.getElementById("font-size-display");
+
+if (themeSelect) {
+    themeSelect.addEventListener("change", (e) => {
+        if (currentEditor) currentEditor.setOption("theme", e.target.value);
+    });
+}
+
+if (fontIncreaseBtn && fontDecreaseBtn) {
+    fontIncreaseBtn.addEventListener("click", () => {
+        if (currentFontSize < 40) currentFontSize += 2;
+        updateFontSizeDisplay();
+    });
+
+    fontDecreaseBtn.addEventListener("click", () => {
+        if (currentFontSize > 8) currentFontSize -= 2;
+        updateFontSizeDisplay();
+    });
+
+    function updateFontSizeDisplay() {
+        if (fontSizeDisplay) {
+            fontSizeDisplay.textContent = currentFontSize + "px";
+        }
+        const cmElement = document.querySelector(".CodeMirror");
+        if (cmElement && currentEditor) {
+            cmElement.style.fontSize = currentFontSize + "px";
+            currentEditor.refresh();
+        }
+    }
+}
+
+
+

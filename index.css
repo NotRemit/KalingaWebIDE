@@ -39,6 +39,14 @@ body {
     height: 60px;
 }
 
+.toolbar-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    flex: 1;
+}
+
 .logo {
     font-family: 'Outfit', var(--font-sans);
     font-size: 1.4rem;
@@ -63,9 +71,18 @@ body {
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     transition: all 0.2s ease;
     font-family: var(--font-sans);
+}
+
+.btn.icon-only {
+    padding: 10px;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    font-size: 1.1rem;
 }
 
 .btn:disabled {
@@ -76,11 +93,15 @@ body {
 .btn-run {
     background-color: #304f30;
     color: var(--accent-green);
+    box-shadow: 0 0 8px rgba(166, 227, 161, 0.2);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .btn-run:hover:not(:disabled) {
     background-color: var(--accent-green);
     color: var(--bg-main);
+    box-shadow: 0 0 15px rgba(166, 227, 161, 0.6);
+    transform: translateY(-1.5px);
 }
 
 .btn-clear {
@@ -203,12 +224,14 @@ section {
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 500;
-    transition: all 0.2s ease;
+    transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .lesson-btn:hover {
     background-color: var(--accent-blue);
     color: var(--bg-main);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 }
 
 .lesson-btn.active {
@@ -263,6 +286,50 @@ section {
     font-family: var(--font-mono);
     font-size: 14px;
     line-height: 1.5;
+}
+
+/* CodeMirror Active Line Highlight */
+.CodeMirror-activeline-background {
+    background: rgba(137, 180, 250, 0.1);
+}
+.CodeMirror-activeline-gutter {
+    background: rgba(137, 180, 250, 0.1);
+}
+
+/* Autocomplete Hint Panel Styling */
+.CodeMirror-hints {
+    background-color: var(--bg-sidebar) !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid #45475a !important;
+    border-radius: 6px !important;
+    padding: 4px 0 !important;
+    font-family: var(--font-sans) !important;
+    font-size: 0.9rem !important;
+    z-index: 1000 !important;
+}
+
+.CodeMirror-hint {
+    color: var(--fg-text) !important;
+    padding: 6px 12px !important;
+    transition: background 0.1s;
+}
+
+.CodeMirror-hint-active {
+    background-color: var(--accent-blue) !important;
+    color: var(--bg-main) !important;
+    font-weight: 600 !important;
+}
+
+li.odia-hint-item.kw-hint {
+    color: var(--accent-green) !important;
+}
+
+li.odia-hint-item.translit-hint {
+    color: var(--fg-text) !important;
+}
+
+li.CodeMirror-hint-active.odia-hint-item {
+    color: var(--bg-main) !important;
 }
 
 /* Editor Controls (Theme, Font, Download) */
@@ -408,7 +475,7 @@ section {
 }
 
 .console-pane {
-    flex: 3;
+    flex: 1;
     display: flex;
     flex-direction: column;
     border-bottom: 1px solid #313244;
@@ -467,70 +534,7 @@ section {
 }
 
 
-/* AI Pane */
-.ai-pane {
-    flex: 2;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
 
-.ai-wrapper {
-    flex: 1;
-    padding: 15px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    background-color: var(--bg-sidebar);
-}
-
-.ai-preview-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--fg-muted);
-    text-align: center;
-    border: 2px dashed #45475a;
-    border-radius: 8px;
-    padding: 20px;
-    width: 100%;
-    flex: 1;
-    gap: 10px;
-}
-
-.ai-preview-placeholder i {
-    font-size: 2.5rem;
-}
-
-.ai-preview-img {
-    max-width: 100%;
-    max-height: 140px;
-    border-radius: 6px;
-    border: 1px solid #45475a;
-    object-fit: contain;
-    flex: 1;
-}
-
-.ai-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    font-size: 0.85rem;
-}
-
-.ai-controls select {
-    background-color: #313244;
-    color: var(--fg-text);
-    border: 1px solid #45475a;
-    border-radius: 4px;
-    padding: 4px 8px;
-    outline: none;
-    flex: 1;
-}
 
 /* Modals (Dedicated Pop-up Window for Lessons & Help) */
 .modal {
@@ -552,8 +556,10 @@ section {
 }
 
 .modal-content {
-    background-color: var(--bg-sidebar);
-    border: 1px solid #45475a;
+    background-color: rgba(37, 37, 56, 0.85); /* Translucent sidebar color */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
     width: 90%;
     max-width: 750px;
@@ -578,12 +584,12 @@ section {
 }
 
 .modal-header {
-    background-color: var(--bg-main);
+    background-color: rgba(30, 30, 46, 0.6); /* Translucent main bg */
     padding: 15px 25px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid #313244;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .modal-header h2 {
@@ -668,8 +674,8 @@ section {
 
 .modal-footer {
     padding: 15px 25px;
-    background-color: var(--bg-main);
-    border-top: 1px solid #313244;
+    background-color: rgba(30, 30, 46, 0.6); /* Translucent main bg */
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     justify-content: flex-end;
 }
@@ -702,8 +708,8 @@ section {
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
